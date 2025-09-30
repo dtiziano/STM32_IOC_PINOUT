@@ -64,13 +64,13 @@ def write_excel_file(
         )
 
     # Alternating row colors
-    for row_idx in range(row_header + 1, sheet.max_row + 1, 1):
-        for col_idx in range(1, sheet.max_column + 1):
-            print(row_idx)
-            fill_color = color_white if row_idx % 2 == 0 else color_light_blue
-            sheet.cell(row=row_idx, column=col_idx).fill = PatternFill(
-                start_color=fill_color, end_color=fill_color, fill_type="solid"
-            )
+    # for row_idx in range(row_header + 1, sheet.max_row + 1, 1):
+    #     for col_idx in range(1, sheet.max_column + 1):
+    #         print(row_idx)
+    #         fill_color = color_white if row_idx % 2 == 0 else color_light_blue
+    #         sheet.cell(row=row_idx, column=col_idx).fill = PatternFill(
+    #             start_color=fill_color, end_color=fill_color, fill_type="solid"
+    #         )
 
     # Adjust column widths
     for col in sheet.columns:
@@ -110,12 +110,12 @@ def write_excel_file(
             )
 
         # Alternating row colors
-        for row_idx in range(2, sheet.max_row + 1, 1):
-            for col_idx in range(1, sheet.max_column + 1):
-                fill_color = color_white if row_idx % 2 == 0 else color_light_blue
-                sheet.cell(row=row_idx, column=col_idx).fill = PatternFill(
-                    start_color=fill_color, end_color=fill_color, fill_type="solid"
-                )
+        # for row_idx in range(2, sheet.max_row + 1, 1):
+        #     for col_idx in range(1, sheet.max_column + 1):
+        #         fill_color = color_white if row_idx % 2 == 0 else color_light_blue
+        #         sheet.cell(row=row_idx, column=col_idx).fill = PatternFill(
+        #             start_color=fill_color, end_color=fill_color, fill_type="solid"
+        #         )
 
         # Adjust column widths
         for col in sheet.columns:
