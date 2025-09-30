@@ -238,7 +238,7 @@ def compute_pin_points(symbol_points, pin_rel_points, pin_length, pin_rot):
     theta = math.radians(180 - pin_rot)  # Adjust for KiCad's coordinate system
     dx = pin_length * math.cos(theta)
     dy = pin_length * math.sin(theta)
-    abs_endpoint = (abs_anchor_x + dx, abs_anchor_y + dy)
+    abs_endpoint = (abs_anchor_x + dx, abs_anchor_y - dy)
 
     return abs_anchor, abs_endpoint
 
