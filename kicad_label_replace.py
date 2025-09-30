@@ -164,31 +164,6 @@ def parse_label_blocks(sch_text, placeholder="XXXXXXXXXXXXXXXXX"):
 import math
 
 
-def compute_pin_endpoint(symbol_origin, pin_at, length, rotation_deg):
-    """
-    Compute absolute anchor and endpoint of a pin.
-    """
-    x0, y0 = symbol_origin
-    x_rel, y_rel = pin_at
-    abs_anchor = (x0 + x_rel, y0 + y_rel)
-
-    theta = math.radians(180 - rotation_deg)
-    dx = length * math.cos(theta)
-    dy = length * math.sin(theta)
-    abs_endpoint = (abs_anchor[0] + dx, abs_anchor[1] + dy)
-    print(
-        "origin:",
-        symbol_origin,
-        "pin_at:",
-        pin_at,
-        "length:",
-        length,
-        "rot:",
-        rotation_deg,
-    )
-    return abs_anchor, abs_endpoint
-
-
 import re
 import math
 
@@ -220,92 +195,128 @@ def extract_parentheses_block(text, start_idx):
     raise ValueError("No matching closing parenthesis found")
 
 
-def parse_ic_pins(sch_text, symbol_name="MCU_ST_STM32H5:STM32H503CBTx"):
+def find_symbol_instance(sch_text, lib_id):
     """
-    Parse the MCU symbol inside lib_symbols and return pins with absolute positions.
-    Returns list of dicts: { 'pin_name', 'abs_anchor', 'abs_endpoint' }
+    Find the first instance of a symbol with the given lib_id in the schematic.
+    Returns its absolute position and rotation: (x, y, rotation_deg)
+    """
+    # Match a symbol block containing the lib_id
+    m = re.search(
+        r'\(symbol\s*\(\s*lib_id\s+"{}"\)\s*\(at\s+([-+]?\d*\.?\d+)\s+([-+]?\d*\.?\d+)\s+([-+]?\d*\.?\d+)?\)'.format(
+            re.escape(lib_id)
+        ),
+        sch_text,
+        flags=re.DOTALL,
+    )
+    if not m:
+        print(f"Warning: Symbol with lib_id '{lib_id}' not found in schematic.")
+        return None, None, None
+
+    x = float(m.group(1))
+    y = float(m.group(2))
+    rotation = float(m.group(3)) if m.group(3) else 0.0
+    return x, y, rotation
+
+
+import math
+
+
+def compute_pin_points(symbol_points, pin_rel_points, pin_length, pin_rot):
+    """
+    Given symbol absolute position, pin relative position, pin length and pin rotation,
+    compute absolute anchor and endpoint of the pin.
+    """
+    symbol_x, symbol_y = symbol_points
+    pin_rel_x, pin_rel_y = pin_rel_points
+
+    # Compute absolute anchor point
+    abs_anchor_x = symbol_x + pin_rel_x
+    abs_anchor_y = symbol_y + pin_rel_y
+    abs_anchor = (abs_anchor_x, abs_anchor_y)
+
+    # Compute endpoint based on rotation and length
+    theta = math.radians(180 - pin_rot)  # Adjust for KiCad's coordinate system
+    dx = pin_length * math.cos(theta)
+    dy = pin_length * math.sin(theta)
+    abs_endpoint = (abs_anchor_x + dx, abs_anchor_y + dy)
+
+    return abs_anchor, abs_endpoint
+
+
+def parse_ic_pins(symbol_x, symbol_y, symbol_rotation, sch_text, pin_names=None):
+    """
+    Parse the schematic for pins by searching for pin names directly.
+    Returns a list of dicts: { 'pin_name', 'abs_anchor', 'length', 'pin_type' }
+    If pin_names is provided, only looks for those pins; otherwise, finds all pins.
+    Warnings are printed if a pin is missing or duplicated.
     """
     pins = []
+    if pin_names is None:
+        pin_names = set(re.findall(r'\(name\s+"([^"]+)"', sch_text))
 
-    # 1. Extract lib_symbols block
-    lib_m = re.search(r"\(lib_symbols", sch_text)
-    if not lib_m:
-        print("ERROR: Could not find (lib_symbols block")
-        return []
-    lib_block, _ = extract_parentheses_block(sch_text, lib_m.start())
-    if lib_block is None:
-        print("ERROR: Could not extract lib_symbols block")
-        return []
-
-    # 2. Find top-level MCU symbol inside lib_symbols
-    top_match = re.search(r'\(symbol\s+"{}"'.format(re.escape(symbol_name)), lib_block)
-    if not top_match:
-        print(f"ERROR: MCU symbol '{symbol_name}' not found inside lib_symbols")
-        return []
-
-    top_block, _ = extract_parentheses_block(lib_block, top_match.start())
-    if top_block is None:
-        print("ERROR: Could not extract top-level MCU symbol block")
-        return []
-
-    # 3. Get top-level origin
-    at_m = re.search(r"\(at\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)", top_block)
-    top_origin = (float(at_m.group(1)), float(at_m.group(2))) if at_m else (0.0, 0.0)
-    print("Top-level MCU origin:", top_origin)
-
-    # 4. Find all nested symbols
-    nested_matches = list(re.finditer(r'\(symbol\s+"[^"]+"', top_block))
-    for nm in nested_matches:
-        nested_start = nm.start()
-        nested_block, _ = extract_parentheses_block(top_block, nested_start)
-        if nested_block is None:
+    for pin_name in pin_names:
+        matches = [
+            m.start()
+            for m in re.finditer(r'\(name\s+"{}"'.format(re.escape(pin_name)), sch_text)
+        ]
+        if len(matches) == 0:
+            print(f"Warning: Pin '{pin_name}' not found in schematic!")
+            continue
+        if len(matches) > 1:
+            print(f"Warning: Pin '{pin_name}' found more than once in schematic!")
             continue
 
-        # nested origin
+        start_idx = sch_text.rfind("(pin", 0, matches[0])
+        if start_idx == -1:
+            print(f"Warning: Could not find '(pin' start for pin '{pin_name}'")
+            continue
+
+        try:
+            pin_block, _ = extract_parentheses_block(sch_text, start_idx)
+        except ValueError:
+            print(f"Warning: Could not extract pin block for '{pin_name}'")
+            continue
+
         at_m = re.search(
-            r"\(at\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s*(-?\d+(?:\.\d+)?)?\)",
-            nested_block,
+            r"\(at\s+([-+]?\d*\.?\d+)\s+([-+]?\d*\.?\d+)\s+([-+]?\d*\.?\d+)\)",
+            pin_block,
         )
-        nested_origin = (
-            (float(at_m.group(1)), float(at_m.group(2))) if at_m else (0.0, 0.0)
-        )
-        abs_nested_origin = (
-            top_origin[0] + nested_origin[0],
-            top_origin[1] + nested_origin[1],
-        )
-        print("Nested symbol origin:", abs_nested_origin)
+        if not at_m:
+            print(f"Warning: Could not find (at ...) for pin '{pin_name}'")
+            continue
+        x, y, rot = map(float, at_m.groups())
 
-        # parse pins
-        pin_matches = re.finditer(r"\(pin\b(.*?)\)\s*\)", nested_block, flags=re.DOTALL)
-        for pm in pin_matches:
-            pin_text = pm.group(1)
-            name_m = re.search(r'\(name\s+"([^"]+)"', pin_text)
-            at_m = re.search(
-                r"\(at\s+([-+]?\d*\.?\d+)\s+([-+]?\d*\.?\d+)\s+([-+]?\d*\.?\d+)\)",
-                pin_text,
-            )
-            length_m = re.search(r"\(length\s+([-\d\.]+)\)", pin_text)
-            if not name_m or not at_m or not length_m:
-                continue
-            pin_name = name_m.group(1)
-            rel_x, rel_y = float(at_m.group(1)), float(at_m.group(2))
-            rot_deg = float(at_m.group(3)) if at_m.group(3) else 0.0
-            length = float(length_m.group(1))
-            abs_anchor = (abs_nested_origin[0] + rel_x, abs_nested_origin[1] + rel_y)
-            rot_rad = math.radians(rot_deg)
-            dx = length * math.cos(rot_rad)
-            dy = length * math.sin(rot_rad)
-            abs_endpoint = (abs_anchor[0] + dx, abs_anchor[1] + dy)
-            pins.append(
-                {
-                    "pin_name": pin_name,
-                    "abs_anchor": abs_anchor,
-                    "abs_endpoint": abs_endpoint,
-                }
-            )
-            print(f"Pin: {pin_name}, anchor: {abs_anchor}, endpoint: {abs_endpoint}")
+        length_m = re.search(r"\(length\s+([-+]?\d*\.?\d+)\)", pin_block)
+        if not length_m:
+            print(f"Warning: Could not find (length ...) for pin '{pin_name}'")
+            continue
+        length = float(length_m.group(1))
 
-    print(f"Total MCU pins parsed: {len(pins)}")
+        type_m = re.search(r"\(pin\s+(\S+)\s+line", pin_block)
+        if not type_m:
+            print(f"Warning: Could not find pin type for pin '{pin_name}'")
+            continue
+        pin_type = type_m.group(1)
+
+        abs_anchor, abs_endpoint = compute_pin_points(
+            (symbol_x, symbol_y), (x, y), length, rot + symbol_rotation
+        )
+        pins.append(
+            {
+                "pin_name": pin_name,
+                "rel_anchor": (x, y),
+                "rot": rot,
+                "length": length,
+                "pin_type": pin_type,
+                "abs_anchor": abs_anchor,
+                "abs_endpoint": abs_endpoint,
+            }
+        )
+        print(
+            f"Pin parsed: {pin_name}, anchor: {abs_anchor}, endpoint: {abs_endpoint}, length: {length}, type: {pin_type}"
+        )
+
+    print(f"Total pins parsed: {len(pins)}")
     return pins
 
 
@@ -352,7 +363,17 @@ def main(sch_path, excel_path, placeholder="XXXXXXXXXXXXXXXXX", backup=True):
     labels = parse_label_blocks(sch_text, placeholder=placeholder)
     print(f"Found {len(labels)} labels with placeholder '{placeholder}'.")
 
-    all_pins = parse_ic_pins(sch_text)
+    symbol_x, symbol_y, symbol_rotation = find_symbol_instance(
+        sch_text, lib_id="MCU_ST_STM32H5:STM32H503CBTx"
+    )
+    print(f"MCU symbol position and rotation: {(symbol_x, symbol_y, symbol_rotation)}")
+    if symbol_rotation != 0.0:
+        print(symbol_rotation)
+        raise NotImplementedError("Rotation handling not implemented yet.")
+
+    all_pins = parse_ic_pins(
+        symbol_x, symbol_y, symbol_rotation, sch_text, pin_names=pin_map.keys()
+    )
     print(f"Found {len(all_pins)} parsed pins (with computed endpoints).")
 
     # Debug prints
@@ -415,9 +436,9 @@ def main(sch_path, excel_path, placeholder="XXXXXXXXXXXXXXXXX", backup=True):
 
         wires = parse_wire_blocks(sch_text)
         labels = parse_label_blocks(sch_text, placeholder=placeholder)
-        all_pins = parse_ic_pins(sch_text)
-        replacements.append({"label_xy": lab_xy, "pin": pin_num, "signal": signal})
-
+        all_pins = parse_ic_pins(
+            symbol_x, symbol_y, symbol_rotation, sch_text, pin_names=pin_map.keys()
+        )
     if errors:
         if backup:
             bak = sch_path.with_suffix(sch_path.suffix + ".bak")
