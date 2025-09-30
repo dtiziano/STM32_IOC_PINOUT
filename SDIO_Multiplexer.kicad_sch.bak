@@ -1579,7 +1579,7 @@
 		)
 		(uuid "b8b9659c-faa4-4c4d-9920-4e42fb25651e")
 	)
-	(label "ADCx_INP9"
+	(label "XXXXXXXXXXXXXXXXX"
 		(at 102.87 80.01 0)
 		(effects
 			(font

@@ -209,7 +209,7 @@ def find_symbol_instance(sch_text, lib_id):
         flags=re.DOTALL,
     )
     if not m:
-        print(f"Warning: Symbol with lib_id '{lib_id}' not found in schematic.")
+        # print(f"Warning: Symbol with lib_id '{lib_id}' not found in schematic.")
         return None, None, None
 
     x = float(m.group(1))
@@ -231,7 +231,7 @@ def compute_pin_points(symbol_points, pin_rel_points, pin_length, pin_rot):
 
     # Compute absolute anchor point
     abs_anchor_x = symbol_x + pin_rel_x
-    abs_anchor_y = symbol_y + pin_rel_y
+    abs_anchor_y = symbol_y - pin_rel_y
     abs_anchor = (abs_anchor_x, abs_anchor_y)
 
     # Compute endpoint based on rotation and length
@@ -240,7 +240,7 @@ def compute_pin_points(symbol_points, pin_rel_points, pin_length, pin_rot):
     dy = pin_length * math.sin(theta)
     abs_endpoint = (abs_anchor_x + dx, abs_anchor_y - dy)
 
-    return abs_anchor, abs_endpoint
+    return abs_anchor
 
 
 def parse_ic_pins(symbol_x, symbol_y, symbol_rotation, sch_text, pin_names=None):
@@ -260,10 +260,10 @@ def parse_ic_pins(symbol_x, symbol_y, symbol_rotation, sch_text, pin_names=None)
             for m in re.finditer(r'\(name\s+"{}"'.format(re.escape(pin_name)), sch_text)
         ]
         if len(matches) == 0:
-            print(f"Warning: Pin '{pin_name}' not found in schematic!")
+            # print(f"Warning: Pin '{pin_name}' not found in schematic!")
             continue
         if len(matches) > 1:
-            print(f"Warning: Pin '{pin_name}' found more than once in schematic!")
+            # print(f"Warning: Pin '{pin_name}' found more than once in schematic!")
             continue
 
         start_idx = sch_text.rfind("(pin", 0, matches[0])
@@ -298,7 +298,7 @@ def parse_ic_pins(symbol_x, symbol_y, symbol_rotation, sch_text, pin_names=None)
             continue
         pin_type = type_m.group(1)
 
-        abs_anchor, abs_endpoint = compute_pin_points(
+        abs_anchor = compute_pin_points(
             (symbol_x, symbol_y), (x, y), length, rot + symbol_rotation
         )
         pins.append(
@@ -309,12 +309,11 @@ def parse_ic_pins(symbol_x, symbol_y, symbol_rotation, sch_text, pin_names=None)
                 "length": length,
                 "pin_type": pin_type,
                 "abs_anchor": abs_anchor,
-                "abs_endpoint": abs_endpoint,
             }
         )
-        print(
-            f"Pin parsed: {pin_name}, anchor: {abs_anchor}, endpoint: {abs_endpoint}, length: {length}, type: {pin_type}"
-        )
+        # print(
+        #     f"Pin parsed: {pin_name}, anchor: {abs_anchor}, length: {length}, type: {pin_type}"
+        # )
 
     print(f"Total pins parsed: {len(pins)}")
     return pins
@@ -332,7 +331,7 @@ def find_pin_on_wire(wires, all_pins, wire_idx):
     w = wires[wire_idx]
     for pt in w["pts"]:
         for p in all_pins:
-            if coord_equal(p["abs_endpoint"], pt) or coord_equal(p["abs_anchor"], pt):
+            if coord_equal(p["abs_anchor"], pt):
                 return p
     return None
 
@@ -340,6 +339,7 @@ def find_pin_on_wire(wires, all_pins, wire_idx):
 def replace_label_in_text(sch_text, label_full_span, new_text):
     block = sch_text[label_full_span[0] : label_full_span[1]]
     new_block = block.replace('"XXXXXXXXXXXXXXXXX"', f'"{new_text}"', 1)
+    print(f"Replacing label block: {block} at: {label_full_span} with:\n{new_block}\n")
     return sch_text[: label_full_span[0]] + new_block + sch_text[label_full_span[1] :]
 
 
@@ -379,9 +379,7 @@ def main(sch_path, excel_path, placeholder="XXXXXXXXXXXXXXXXX", backup=True):
     # Debug prints
     print("\n=== MCU Pins ===")
     for p in all_pins:
-        print(
-            f"Pin ({p['pin_name']}): anchor={p['abs_anchor']}, endpoint={p['abs_endpoint']}"
-        )
+        print(f"Pin ({p['pin_name']}): anchor={p['abs_anchor']}")
 
     print("\n=== Wires ===")
     for wi, w in enumerate(wires):
@@ -411,9 +409,7 @@ def main(sch_path, excel_path, placeholder="XXXXXXXXXXXXXXXXX", backup=True):
             continue
 
         pin_name = pin["pin_name"]
-        print(
-            f"  Label connects to pin_name: {pin_name} at endpoint {pin['abs_endpoint']}"
-        )
+        print(f"  Label connects to pin_name: {pin_name} at pin {pin['abs_anchor']}")
 
         if pin_name not in pin_map:
             errors.append(
