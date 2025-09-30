@@ -1,90 +1,142 @@
 import pandas as pd
 import openpyxl
-import openpyxl.styles
+from openpyxl.styles import PatternFill, Side, Border
+from openpyxl.worksheet.table import Table
+import openpyxl.utils
 
 
-def write_excel_file(excel_file_path, pin_data, additional_info, duplicate_EXTI_error=True):
-    sheet_name = None
-    row_counter = 1
-    row_header = None
-    # Export the DataFrame to Excel with alternating row colors, borders, and adjusted column widths
-    with pd.ExcelWriter(excel_file_path, engine='openpyxl') as writer:
-        pin_data.to_excel(writer, sheet_name='Sheet1', index=False)
+def write_excel_file(
+    excel_file_path,
+    pin_data,
+    additional_info,
+    duplicate_EXTI_error=True,
+    peripherals=None,
+):
+    """
+    Write pin_data (and optionally peripherals) to Excel with formatting.
+    """
+    with pd.ExcelWriter(excel_file_path, engine="openpyxl") as writer:
+        # Always write pin_data first
+        pin_data.to_excel(writer, sheet_name="Pins", index=False)
 
-        # Access the Excel writer and the sheet
-        workbook = writer.book
-        sheet = writer.sheets['Sheet1']
-        sheet_name =  sheet
+        # Optionally write peripherals
+        if peripherals is not None and not peripherals.empty:
+            peripherals.to_excel(writer, sheet_name="Peripherals", index=False)
 
+    # Now reopen workbook with openpyxl to apply formatting
+    wb = openpyxl.load_workbook(excel_file_path)
 
-        # Define the colors
-        no_error_color = '00FF00' # Light green
-        error_color = 'FF0000' #red
-        color_header = '4285F4'  # Dark blue
-        color_white = 'FFFFFF'  # White
-        color_light_blue = 'DDEBF7'  # Light blue
+    # ---------------- PINS SHEET ----------------
+    sheet = wb["Pins"]
 
-         # Insert additional info
-        sheet.insert_rows(0)
-        sheet["A1"] = "MCU: " + additional_info['McuName']        
-        sheet["B1"] = "CPN: " + additional_info['McuCPN']
-        sheet["C1"] = "Footprint: " + additional_info['McuPackage']
+    no_error_color = "00FF00"
+    error_color = "FF0000"
+    color_header = "4285F4"
+    color_white = "FFFFFF"
+    color_light_blue = "DDEBF7"
 
-        # for col_idx in range(1, sheet.max_column + 1):
-        #     sheet.cell(row=1, column=col_idx).fill = openpyxl.styles.PatternFill(
-        #         start_color = error_color if duplicate_EXTI_error else no_error_color, end_color = error_color if duplicate_EXTI_error else no_error_color, fill_type='solid'
-        #     )
-        row_counter += 1
+    # Insert MCU info row
+    sheet.insert_rows(0)
+    sheet["A1"] = "MCU: " + additional_info["McuName"]
+    sheet["B1"] = "CPN: " + additional_info["McuCPN"]
+    sheet["C1"] = "Footprint: " + additional_info["McuPackage"]
 
-        # Insert the EXTI check into the excel
-        sheet.insert_rows(0)
-        sheet["A1"] = "Error: Duplicate EXTI signal found" if duplicate_EXTI_error else "All good: no duplicated EXTI lines"
+    # Insert EXTI error row
+    sheet.insert_rows(0)
+    sheet["A1"] = (
+        "Error: Duplicate EXTI signal found"
+        if duplicate_EXTI_error
+        else "All good: no duplicated EXTI lines"
+    )
+    for col_idx in range(1, sheet.max_column + 1):
+        sheet.cell(row=1, column=col_idx).fill = PatternFill(
+            start_color=error_color if duplicate_EXTI_error else no_error_color,
+            end_color=error_color if duplicate_EXTI_error else no_error_color,
+            fill_type="solid",
+        )
+
+    row_header = 3  # After two inserted rows
+
+    # Header color
+    for col_idx in range(1, sheet.max_column + 1):
+        sheet.cell(row=row_header, column=col_idx).fill = PatternFill(
+            start_color=color_header, end_color=color_header, fill_type="solid"
+        )
+
+    # Alternating row colors
+    for row_idx in range(row_header + 1, sheet.max_row + 1, 1):
         for col_idx in range(1, sheet.max_column + 1):
-            sheet.cell(row=1, column=col_idx).fill = openpyxl.styles.PatternFill(
-                start_color = error_color if duplicate_EXTI_error else no_error_color, end_color = error_color if duplicate_EXTI_error else no_error_color, fill_type='solid'
+            print(row_idx)
+            fill_color = color_white if row_idx % 2 == 0 else color_light_blue
+            sheet.cell(row=row_idx, column=col_idx).fill = PatternFill(
+                start_color=fill_color, end_color=fill_color, fill_type="solid"
             )
-        row_counter += 1
 
-       
-        row_header = row_counter
-        # Apply color to header
+    # Adjust column widths
+    for col in sheet.columns:
+        max_length = 0
+        column = col[0].column_letter
+        for cell in col:
+            if cell.value and len(str(cell.value)) > max_length:
+                max_length = len(str(cell.value))
+        sheet.column_dimensions[column].width = max_length + 2
+
+    # Borders
+    thin_border = Side(border_style="thin", color="000000")
+    border = Border(
+        left=thin_border, right=thin_border, top=thin_border, bottom=thin_border
+    )
+    for row in sheet.iter_rows():
+        for cell in row:
+            cell.border = border
+
+    # Excel table for pin_data
+    tab = Table(
+        displayName="pin_data",
+        ref="A"
+        + str(row_header)
+        + f":{openpyxl.utils.get_column_letter(pin_data.shape[1])}{len(pin_data) + row_header}",
+    )
+    sheet.add_table(tab)
+
+    # ---------------- PERIPHERALS SHEET ----------------
+    if peripherals is not None and not peripherals.empty:
+        sheet = wb["Peripherals"]
+
+        # Header color
         for col_idx in range(1, sheet.max_column + 1):
-            sheet.cell(row=row_counter, column=col_idx).fill = openpyxl.styles.PatternFill(
-                start_color = color_header, end_color = color_header, fill_type='solid'
+            sheet.cell(row=1, column=col_idx).fill = PatternFill(
+                start_color=color_header, end_color=color_header, fill_type="solid"
             )
-        row_counter += 1
-        # Apply alternating row colors starting from the second row
-        for row_idx in range(row_counter, sheet.max_row + 1, 2):
+
+        # Alternating row colors
+        for row_idx in range(2, sheet.max_row + 1, 1):
             for col_idx in range(1, sheet.max_column + 1):
-                fill_color = color_white if row_idx % 4 == 2 else color_light_blue
-                sheet.cell(row=row_idx, column=col_idx).fill = openpyxl.styles.PatternFill(
-                    start_color=fill_color, end_color=fill_color, fill_type='solid'
+                fill_color = color_white if row_idx % 2 == 0 else color_light_blue
+                sheet.cell(row=row_idx, column=col_idx).fill = PatternFill(
+                    start_color=fill_color, end_color=fill_color, fill_type="solid"
                 )
 
-        # Adjust column widths to fit the data
+        # Adjust column widths
         for col in sheet.columns:
             max_length = 0
-            column = col[0].column_letter  # Get the column name
+            column = col[0].column_letter
             for cell in col:
-                try:
-                    if len(str(cell.value)) > max_length:
-                        max_length = len(cell.value)
-                except:
-                    pass
-            adjusted_width = (max_length + 2)
-            sheet.column_dimensions[column].width = adjusted_width
+                if cell.value and len(str(cell.value)) > max_length:
+                    max_length = len(str(cell.value))
+            sheet.column_dimensions[column].width = max_length + 2
 
-        # Add thin lines separating rows and columns
-        thin_border = openpyxl.styles.Side(border_style='thin', color='000000')
-        border = openpyxl.styles.Border(left=thin_border, right=thin_border, top=thin_border, bottom=thin_border)
-
+        # Borders
         for row in sheet.iter_rows():
             for cell in row:
                 cell.border = border
 
-        print(f'DataFrame exported to {excel_file_path} with alternating row colors and{" without" if not duplicate_EXTI_error else ""} the first line.')
+        # Excel table
+        tab = Table(
+            displayName="peripherals_data",
+            ref=f"A1:{openpyxl.utils.get_column_letter(peripherals.shape[1])}{len(peripherals) + 1}",
+        )
+        sheet.add_table(tab)
 
-    wb = openpyxl.load_workbook(filename = excel_file_path)
-    tab = openpyxl.worksheet.table.Table(displayName="pin_data", ref='A'+str(row_header)+f':{openpyxl.utils.get_column_letter(pin_data.shape[1])}{len(pin_data)+1}')
-    wb[sheet_name.title].add_table(tab)
     wb.save(excel_file_path)
+    print(f"Excel written: {excel_file_path} (with Pins + Peripherals)")
