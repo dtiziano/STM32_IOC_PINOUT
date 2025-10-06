@@ -110,8 +110,15 @@ def write_excel_file(
     )
     rule = FormulaRule(formula=[formula], fill=light_rosa_fill)
 
+    # Rule 2: F is empty
+    formula2 = 'F4=""'
+    rule2 = FormulaRule(formula=[formula2], fill=light_rosa_fill)
+
+    data_length = len(pin_data) + row_header
+
     # Apply to a range, e.g., F4:F100
-    sheet.conditional_formatting.add("F4:F10000", rule)
+    sheet.conditional_formatting.add(f"F4:F{data_length}", rule)
+    sheet.conditional_formatting.add(f"F4:F{data_length}", rule2)
 
     # Freeze first 3 rows
     sheet.freeze_panes = "A4"  # everything above row 4 will stay frozen
