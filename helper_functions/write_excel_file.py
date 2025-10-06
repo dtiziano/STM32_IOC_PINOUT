@@ -1,6 +1,7 @@
 import pandas as pd
 import openpyxl
 from openpyxl.styles import PatternFill, Side, Border
+from openpyxl.formatting.rule import FormulaRule
 from openpyxl.worksheet.table import Table
 import openpyxl.utils
 
@@ -98,6 +99,22 @@ def write_excel_file(
         + f":{openpyxl.utils.get_column_letter(pin_data.shape[1])}{len(pin_data) + row_header}",
     )
     sheet.add_table(tab)
+
+    # Add conditional formatting formula to column F (starting from F4)
+    # This formula will apply red fill if F value != D value and F value != E value
+    formula = "AND(F4<>D4, F4<>E4)"
+    # Define red fill
+    # Define light rosa fill (soft pink)
+    light_rosa_fill = PatternFill(
+        start_color="FFD1DC", end_color="FFD1DC", fill_type="solid"  # light pink
+    )
+    rule = FormulaRule(formula=[formula], fill=light_rosa_fill)
+
+    # Apply to a range, e.g., F4:F100
+    sheet.conditional_formatting.add("F4:F10000", rule)
+
+    # Freeze first 3 rows
+    sheet.freeze_panes = "A4"  # everything above row 4 will stay frozen
 
     # ---------------- PERIPHERALS SHEET ----------------
     if peripherals is not None and not peripherals.empty:
